@@ -1,2 +1,2 @@
 [workspace]
-members = ["blazepdf-lib", "blazepdf-cli"]
+members = ["blazepdf-lib", "blazepdf"]
