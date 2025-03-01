@@ -1,0 +1,12 @@
+[package]
+name = "blazepdf-lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+html5ever = "0.26"
+cssparser = "0.27"
+printpdf = "0.5"
+rayon = "1.5"
+log = "0.4"
+env_logger = "0.10"

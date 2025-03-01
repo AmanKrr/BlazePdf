@@ -1,0 +1,6 @@
+# Ignore Cargo build files
+target/
+Cargo.lock
+
+# Ignore Rust-specific temporary files
+*.rs.bk
