@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-html5ever = "0.26"
+html5ever = "0.29"
 cssparser = "0.27"
 printpdf = "0.5"
 rayon = "1.5"

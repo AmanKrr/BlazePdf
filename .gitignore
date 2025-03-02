@@ -1,3 +1,7 @@
+# ignore vs code dir
+.vscode
+.DS_Store
+
 # Ignore Cargo build files
 target/
 Cargo.lock
