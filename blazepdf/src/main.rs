@@ -34,14 +34,11 @@ fn main() {
     match fs::read_to_string(&args.input) {
         Ok(html_content) => {
             println!("Successfully read the HTML file.");
-            parser::html::read(&html_content);
+            parser::html::create_dom_tree(&html_content);
         }
         Err(e) => {
             eprintln!("Error reading HTML file: {}", e);
             std::process::exit(1);
         }
     }
-
-    println!("Input {}!", args.input);
-    println!("Output {}!", args.output);
 }

@@ -10,3 +10,12 @@ printpdf = "0.5"
 rayon = "1.5"
 log = "0.4"
 env_logger = "0.10"
+
+[dev-dependencies]
+proptest = "1.6.0"
+pretty_assertions = "1.4.1"
+criterion = "0.5.1"
+
+[[bench]]
+name = "dom_bench"
+harness = false
