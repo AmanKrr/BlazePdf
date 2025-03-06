@@ -1,2 +1,4 @@
-pub mod dom;
-pub mod parser;
+pub mod blaze_generate;
+mod dom;
+mod parser;
+mod style;

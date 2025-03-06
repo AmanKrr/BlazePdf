@@ -1,4 +1,4 @@
-use blazepdf_lib::parser;
+use blazepdf_lib::blaze_generate;
 use clap::Parser;
 use std::fs;
 
@@ -34,7 +34,7 @@ fn main() {
     match fs::read_to_string(&args.input) {
         Ok(html_content) => {
             println!("Successfully read the HTML file.");
-            parser::html::create_dom_tree(&html_content);
+            blaze_generate::blaze_pdf::generate_pdf(&html_content, "");
         }
         Err(e) => {
             eprintln!("Error reading HTML file: {}", e);

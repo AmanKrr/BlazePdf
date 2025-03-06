@@ -13,6 +13,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 /// A list of void (self-closing) elements in HTML.
+#[allow(dead_code)]
 const VOID_ELEMENTS: &[&str] = &[
     "meta", "img", "br", "hr", "input", "link", "area", "base", "col", "embed", "param", "source",
     "track", "wbr",
@@ -24,6 +25,7 @@ const VOID_ELEMENTS: &[&str] = &[
 ///
 /// * `node` - A reference to a DOM node to print.
 /// * `indent` - The current indentation level (number of spaces) for formatting.
+#[allow(dead_code)]
 fn print_dom(node: &dom_tree::Node, indent: usize) {
     let indentation = " ".repeat(indent);
     match node {
@@ -63,6 +65,7 @@ fn print_dom(node: &dom_tree::Node, indent: usize) {
 /// # Arguments
 ///
 /// * `document` - A reference to the Document to print.
+#[allow(dead_code)]
 pub fn print_document(document: &dom_tree::Document) {
     if let Some(doctype) = &*document.doctype.borrow() {
         println!("<!DOCTYPE {}>", doctype.name);
@@ -83,7 +86,9 @@ pub fn print_document(document: &dom_tree::Document) {
 /// A `dom_tree::Document` representing the parsed HTML.
 pub fn create_dom_tree(html_content: &str) -> dom_tree::Document {
     let tree_sink = BlazePdfTreeSink::new();
-    html5ever::parse_document(tree_sink, Default::default()).one(html_content.to_string())
+    let document =
+        html5ever::parse_document(tree_sink, Default::default()).one(html_content.to_string());
+    document
 }
 
 /// A custom TreeSink for building the DOM tree used by the parser.
@@ -170,15 +175,22 @@ impl TreeSink for BlazePdfTreeSink {
         _flags: html5ever::interface::ElementFlags,
     ) -> Self::Handle {
         let tag = name.local.to_string();
+        // let attributes = attrs
+        //     .into_iter()
+        //     .map(|attr| (attr.name.local.to_string(), attr.value.to_string()))
+        //     .collect::<Vec<_>>();
         let attributes = attrs
             .into_iter()
             .map(|attr| (attr.name.local.to_string(), attr.value.to_string()))
-            .collect::<Vec<_>>();
+            .collect::<std::collections::HashMap<String, String>>();
         let element_node = dom_tree::ElementNode {
             tag: tag.clone(),
             qual_name: name.clone(),
             attributes,
             children: Vec::new(),
+            parent: None,
+            prev_sibling: None,
+            next_sibling: None,
         };
         Rc::new(RefCell::new(dom_tree::Node::Element(element_node)))
     }
@@ -197,31 +209,85 @@ impl TreeSink for BlazePdfTreeSink {
     /// Appends a child node or text to the given parent node.
     fn append(&self, parent: &Self::Handle, child: NodeOrText<Self::Handle>) {
         let child_node = match child {
-            NodeOrText::AppendNode(node) => node,
-            NodeOrText::AppendText(text) => {
-                Rc::new(RefCell::new(dom_tree::Node::Text(text.to_string())))
-            }
+            NodeOrText::AppendNode(node) => (node, true),
+            NodeOrText::AppendText(text) => (
+                Rc::new(RefCell::new(dom_tree::Node::Text(text.to_string()))),
+                false,
+            ),
         };
 
+        // Update parent's children and sibling pointers.
         let mut parent_borrow = parent.borrow_mut();
         match &mut *parent_borrow {
             dom_tree::Node::DocumentRoot(root) => {
-                root.children.push(child_node.clone());
+                // If the new child is an element, set its parent pointer.
+                if let dom_tree::Node::Element(ref mut child_elem) = *child_node.0.borrow_mut() {
+                    child_elem.parent = Some(Rc::downgrade(parent));
+                }
+                // Find the last element child in the document root.
+                if let Some(prev_element) = root
+                    .children
+                    .iter()
+                    .rev()
+                    .find(|child| matches!(*child.borrow(), dom_tree::Node::Element(_)))
+                {
+                    // Update sibling pointers if both the previous node and the new one are elements.
+                    if let (Some(child_elem), Some(prev_elem)) = (
+                        match &mut *child_node.0.borrow_mut() {
+                            dom_tree::Node::Element(ref mut elem) => Some(elem),
+                            _ => None,
+                        },
+                        match &mut *prev_element.borrow_mut() {
+                            dom_tree::Node::Element(ref mut elem) => Some(elem),
+                            _ => None,
+                        },
+                    ) {
+                        child_elem.prev_sibling = Some(Rc::downgrade(prev_element));
+                        prev_elem.next_sibling = Some(child_node.0.clone());
+                    }
+                }
+                // Finally, push the new child into the DocumentRoot children.
+                root.children.push(child_node.0.clone());
             }
-            dom_tree::Node::Element(element) => {
-                element.children.push(child_node.clone());
+            dom_tree::Node::Element(ref mut element) => {
+                // For parent element, set new child's parent pointer if it is an element.
+                if let dom_tree::Node::Element(ref mut child_elem) = *child_node.0.borrow_mut() {
+                    child_elem.parent = Some(Rc::downgrade(parent));
+                }
+                // Search for the last element among parent's children.
+                if let Some(prev_element) = element
+                    .children
+                    .iter()
+                    .rev()
+                    .find(|child| matches!(*child.borrow(), dom_tree::Node::Element(_)))
+                {
+                    if let (Some(child_elem), Some(prev_elem)) = (
+                        match &mut *child_node.0.borrow_mut() {
+                            dom_tree::Node::Element(ref mut elem) => Some(elem),
+                            _ => None,
+                        },
+                        match &mut *prev_element.borrow_mut() {
+                            dom_tree::Node::Element(ref mut elem) => Some(elem),
+                            _ => None,
+                        },
+                    ) {
+                        child_elem.prev_sibling = Some(Rc::downgrade(prev_element));
+                        prev_elem.next_sibling = Some(child_node.0.clone());
+                    }
+                }
+                // Append the new child node into the parent's children vector.
+                element.children.push(child_node.0.clone());
             }
             dom_tree::Node::Text(_) => {
-                // Text nodes can't have children in HTML
+                // Text nodes cannot have children; do nothing.
             }
         }
-
         let is_element = {
-            let borrowed = child_node.borrow();
+            let borrowed = child_node.0.borrow();
             matches!(*borrowed, dom_tree::Node::Element(_))
         };
         if is_element {
-            self.stack.borrow_mut().push(child_node);
+            self.stack.borrow_mut().push(child_node.0);
         }
     }
 
@@ -284,7 +350,7 @@ impl TreeSink for BlazePdfTreeSink {
                 let key = attr.name.local.to_string();
                 // Check if attribute already exists
                 if !elem_node.attributes.iter().any(|(k, _)| k == &key) {
-                    elem_node.attributes.push((key, attr.value.to_string()));
+                    elem_node.attributes.insert(key, attr.value.to_string());
                 }
             }
         }

@@ -1,11 +1,15 @@
 use html5ever::QualName;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::rc::Weak;
 
 pub mod dom_tree {
+
     use super::*;
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     pub enum Node {
         DocumentRoot(DocumentRootNode),
         Element(ElementNode),
@@ -21,8 +25,15 @@ pub mod dom_tree {
     pub struct ElementNode {
         pub tag: String,
         pub qual_name: QualName,
-        pub attributes: Vec<(String, String)>,
+        pub attributes: HashMap<String, String>,
+
+        // The forward chain of children
         pub children: Vec<Rc<RefCell<Node>>>,
+
+        // Extra links for quick upward / sideways traversal
+        pub parent: Option<Weak<RefCell<Node>>>,
+        pub prev_sibling: Option<Weak<RefCell<Node>>>,
+        pub next_sibling: Option<Rc<RefCell<Node>>>,
     }
 
     #[derive(Debug)]
@@ -32,6 +43,7 @@ pub mod dom_tree {
     }
 
     #[derive(Debug)]
+    #[allow(dead_code)]
     pub struct Doctype {
         pub name: String,
         pub public_id: String,
@@ -46,13 +58,17 @@ pub mod dom_tree {
         }
     }
 
+    #[allow(dead_code)]
     impl ElementNode {
         pub fn new(tag: String, qual_name: QualName) -> Self {
             ElementNode {
                 tag,
                 qual_name,
-                attributes: Vec::new(),
+                attributes: HashMap::new(),
                 children: Vec::new(),
+                parent: None,
+                prev_sibling: None,
+                next_sibling: None,
             }
         }
     }
