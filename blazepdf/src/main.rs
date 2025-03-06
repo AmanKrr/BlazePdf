@@ -34,7 +34,7 @@ fn main() {
     match fs::read_to_string(&args.input) {
         Ok(html_content) => {
             println!("Successfully read the HTML file.");
-            blaze_generate::blaze_pdf::generate_pdf(&html_content, "");
+            blaze_generate::blaze_pdf::generate(&html_content, "");
         }
         Err(e) => {
             eprintln!("Error reading HTML file: {}", e);

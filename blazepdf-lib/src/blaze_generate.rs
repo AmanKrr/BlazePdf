@@ -4,14 +4,9 @@ use crate::style::blaze_css;
 pub mod blaze_pdf {
     use super::*;
 
-    pub fn generate_pdf(html_content: &str, css_content: &str) {
+    pub fn generate(html_content: &str, css_content: &str) {
         let dom_tree = blaze_html::create_dom_tree(html_content);
         blaze_css::parse(css_content, &dom_tree);
-        let indices = dom_indices::DomIndices::build(&dom_tree);
-        println!("Applying CSS...");
-        println!("Document: {:#?}", &dom_tree);
-
-        println!("Indices built: {:#?}", indices);
     }
 }
 
@@ -29,8 +24,10 @@ mod tests {
 </style>
 </head>
 <body>
-  <div class="red">Hello Red</div>
-  <div id="blue">Hello Blue</div>
+  <div class="red" style="display: flex;">Hello Red
+    <div id="blue">Hello Blue</div>
+  </div>
+  <div class="blue">Hello Blue</div>
   <p>Unstyled paragraph</p>
 </body>
 </html>"#;
@@ -44,11 +41,12 @@ mod tests {
         let css_snippet = r#"
             .red { color: red; }
             #blue { color: blue; }  
-            .red + #blue { font-size: 20px; }
             p { color: green; }
+            .red > #blue { font-size: 20px; }
+            .red + .blue { font-size: 20px; }
         "#;
 
-        blaze_pdf::generate_pdf(html_str, css_snippet);
+        blaze_pdf::generate(html_str, css_snippet);
 
         // 5) Inspect the DOM
         // print_document(&dom_document);
