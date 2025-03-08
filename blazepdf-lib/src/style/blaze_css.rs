@@ -52,12 +52,51 @@ impl ComputedStyle {
 /// Given a CSS snippet and a DOM document, it parses the CSS, builds global indexes,
 /// and applies computed styles to matching elements in the DOM.
 pub fn parse(css_snippet: &str, dom_document: &Document) {
+    let inline_style_blocks = extract_style_blocks(dom_document);
+    let css_snippet = format!("{}\n{}", css_snippet, inline_style_blocks);
     // First, parse and own the CSS.
-    let owned_sheet = parse_and_own_css(css_snippet).expect("Failed to parse & own CSS");
+    let owned_sheet = parse_and_own_css(&css_snippet).expect("Failed to parse & own CSS");
     // Build the global DOM indices.
     let indices = DomIndices::build(dom_document);
     // Apply CSS rules using the indices.
     apply_css_with_indices(dom_document, &owned_sheet, &indices);
+}
+
+/// Recursively traverses the DOM tree to extract all CSS from <style> elements.
+fn extract_style_blocks(document: &Document) -> String {
+    let mut styles = String::new();
+    extract_styles_recursive(&document.root, &mut styles);
+    styles
+}
+
+fn extract_styles_recursive(node: &Rc<RefCell<Node>>, styles: &mut String) {
+    let node_borrow = node.borrow();
+    match &*node_borrow {
+        Node::DocumentRoot(root) => {
+            for child in &root.children {
+                extract_styles_recursive(child, styles);
+            }
+        }
+        Node::Element(elem) => {
+            // Check if this element is a <style> tag.
+            if elem.tag.eq_ignore_ascii_case("style") {
+                // In a style element, we expect its children to be text nodes.
+                for child in &elem.children {
+                    if let Node::Text(text) = &*child.borrow() {
+                        styles.push_str(text);
+                        styles.push('\n');
+                    }
+                }
+            }
+            // Recurse into children regardless.
+            for child in &elem.children {
+                extract_styles_recursive(child, styles);
+            }
+        }
+        Node::Text(_) => {
+            // Nothing to do.
+        }
+    }
 }
 
 /// Parse a raw CSS string using LightningCSS and convert it to an OwnedStylesheet.
