@@ -7,7 +7,7 @@ pub struct OwnedStylesheet {
     pub rules: Vec<OwnedRule>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OwnedRule {
     /// e.g. "div", ".red", "#header"
     pub selectors: Vec<String>,
@@ -15,7 +15,7 @@ pub struct OwnedRule {
     pub declarations: Vec<OwnedDeclaration>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OwnedDeclaration {
     pub property: String,
     pub value: String,
