@@ -31,6 +31,15 @@ pub struct AttributeSelector {
     pub value: Option<String>,
 }
 
+/// Pseudo‑classes that we support.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PseudoClass {
+    FirstChild,
+    LastChild,
+    NthChild(i32),
+    // In production you might add: nth-last-child, only-child, etc.
+}
+
 /// A compound selector now includes an optional tag, id, classes, and a list of attribute selectors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompoundSelector {
@@ -38,6 +47,7 @@ pub struct CompoundSelector {
     pub id: Option<String>,
     pub classes: HashSet<String>,
     pub attributes: Vec<AttributeSelector>,
+    pub pseudo: Vec<PseudoClass>,
 }
 
 /// A complex selector composed of a key compound selector and a list of ancestor parts.
@@ -75,14 +85,15 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
     let mut id = None;
     let mut classes = HashSet::new();
     let mut attributes = Vec::new();
+    let mut pseudo = Vec::new();
     let mut chars = selector.chars().peekable();
     let mut buffer = String::new();
 
-    // If first char is alphabetic or '*' assume tag.
+    // If the first character is alphabetic or '*', assume a tag.
     if let Some(&ch) = chars.peek() {
         if ch.is_alphabetic() || ch == '*' {
             while let Some(&ch) = chars.peek() {
-                if ch == '#' || ch == '.' || ch == '[' {
+                if ch == '#' || ch == '.' || ch == '[' || ch == ':' {
                     break;
                 }
                 buffer.push(ch);
@@ -95,11 +106,12 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
         }
     }
 
+    // Process the rest of the selector.
     while let Some(ch) = chars.next() {
         match ch {
             '#' => {
                 while let Some(&ch) = chars.peek() {
-                    if ch == '.' || ch == '#' || ch == '[' {
+                    if ch == '.' || ch == '#' || ch == '[' || ch == ':' {
                         break;
                     }
                     buffer.push(ch);
@@ -112,7 +124,7 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
             }
             '.' => {
                 while let Some(&ch) = chars.peek() {
-                    if ch == '.' || ch == '#' || ch == '[' {
+                    if ch == '.' || ch == '#' || ch == '[' || ch == ':' {
                         break;
                     }
                     buffer.push(ch);
@@ -124,12 +136,12 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
                 buffer.clear();
             }
             '[' => {
-                // Parse attribute selector until ']'
+                // Parse an attribute selector.
                 let mut attr_name = String::new();
                 let mut operator: Option<AttributeOperator> = None;
                 let mut attr_value: Option<String> = None;
 
-                // Skip whitespace.
+                // Skip any whitespace.
                 while let Some(&ch) = chars.peek() {
                     if ch.is_whitespace() {
                         chars.next();
@@ -153,10 +165,9 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
                         break;
                     }
                 }
-                // Check if an operator is present.
+                // Check for an operator.
                 if let Some(&ch) = chars.peek() {
                     if ch == '=' || ch == '~' || ch == '^' || ch == '$' || ch == '*' {
-                        // If next two characters form an operator like "~=".
                         let mut op_str = String::new();
                         op_str.push(ch);
                         chars.next();
@@ -182,7 +193,7 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
                                 break;
                             }
                         }
-                        // Now parse attribute value.
+                        // Parse the attribute value.
                         let quote = if let Some(&ch) = chars.peek() {
                             if ch == '"' || ch == '\'' {
                                 Some(ch)
@@ -193,7 +204,7 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
                             None
                         };
                         if let Some(q) = quote {
-                            chars.next(); // Consume opening quote.
+                            chars.next(); // consume the quote
                             let mut value_buf = String::new();
                             while let Some(ch) = chars.next() {
                                 if ch == q {
@@ -215,7 +226,7 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
                         }
                     }
                 }
-                // Skip until ']'
+                // Consume until the closing ']'
                 while let Some(ch) = chars.next() {
                     if ch == ']' {
                         break;
@@ -229,7 +240,45 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
                     });
                 }
             }
-            _ => {}
+            ':' => {
+                // Parse a pseudo‑class.
+                let mut pseudo_buf = String::new();
+                while let Some(&c) = chars.peek() {
+                    if c.is_alphanumeric() || c == '-' {
+                        pseudo_buf.push(c);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                if pseudo_buf.eq_ignore_ascii_case("first-child") {
+                    pseudo.push(PseudoClass::FirstChild);
+                } else if pseudo_buf.eq_ignore_ascii_case("last-child") {
+                    pseudo.push(PseudoClass::LastChild);
+                } else if pseudo_buf.eq_ignore_ascii_case("nth-child") {
+                    if let Some(&'(') = chars.peek() {
+                        chars.next(); // consume '('
+                        let mut num_buf = String::new();
+                        while let Some(&c) = chars.peek() {
+                            if c.is_digit(10) || c == '-' {
+                                num_buf.push(c);
+                                chars.next();
+                            } else {
+                                break;
+                            }
+                        }
+                        if let Some(&')') = chars.peek() {
+                            chars.next(); // consume ')'
+                        }
+                        if let Ok(n) = num_buf.parse::<i32>() {
+                            pseudo.push(PseudoClass::NthChild(n));
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Skip any other characters (e.g. whitespace).
+            }
         }
     }
 
@@ -238,6 +287,7 @@ pub fn parse_compound_selector(selector: &str) -> CompoundSelector {
         id,
         classes,
         attributes,
+        pseudo,
     }
 }
 
@@ -471,29 +521,127 @@ pub fn matches_compound(elem: &ElementNode, compound: &CompoundSelector) -> bool
     true
 }
 
+/// Checks whether the candidate node satisfies all the pseudo‑classes in the slice.
+fn matches_pseudo(candidate: &Rc<RefCell<Node>>, pseudo: &[PseudoClass]) -> bool {
+    for pseudo_class in pseudo {
+        match pseudo_class {
+            PseudoClass::FirstChild => {
+                if let Some(parent_weak) = get_parent(candidate) {
+                    if let Some(parent_rc) = parent_weak.upgrade() {
+                        let parent = parent_rc.borrow();
+                        let children = match &*parent {
+                            Node::DocumentRoot(root) => &root.children,
+                            Node::Element(elem) => &elem.children,
+                            _ => return false,
+                        };
+                        if let Some(first) = children
+                            .iter()
+                            .find(|child| matches!(*child.borrow(), Node::Element(_)))
+                        {
+                            if !Rc::ptr_eq(first, candidate) {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            PseudoClass::LastChild => {
+                if let Some(parent_weak) = get_parent(candidate) {
+                    if let Some(parent_rc) = parent_weak.upgrade() {
+                        let parent = parent_rc.borrow();
+                        let children = match &*parent {
+                            Node::DocumentRoot(root) => &root.children,
+                            Node::Element(elem) => &elem.children,
+                            _ => return false,
+                        };
+                        if let Some(last) = children
+                            .iter()
+                            .rev()
+                            .find(|child| matches!(*child.borrow(), Node::Element(_)))
+                        {
+                            if !Rc::ptr_eq(last, candidate) {
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            PseudoClass::NthChild(n) => {
+                if let Some(parent_weak) = get_parent(candidate) {
+                    if let Some(parent_rc) = parent_weak.upgrade() {
+                        let parent = parent_rc.borrow();
+                        let children = match &*parent {
+                            Node::DocumentRoot(root) => &root.children,
+                            Node::Element(elem) => &elem.children,
+                            _ => return false,
+                        };
+                        let mut index = 0;
+                        let mut found = false;
+                        for child in children {
+                            if let Node::Element(_) = *child.borrow() {
+                                index += 1;
+                                if Rc::ptr_eq(child, candidate) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !found || index != *n as usize {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
 /// Matches a ComplexSelector against a candidate Element (wrapped in Rc<RefCell<Node>>).
 /// The matching proceeds right-to-left, using parent and sibling pointers.
 pub fn matches_complex_selector(candidate: &Rc<RefCell<Node>>, complex: &ComplexSelector) -> bool {
+    // First, check the candidate against the key compound selector.
     let current_elem = {
         let node = candidate.borrow();
         match &*node {
-            crate::dom::dom_tree::Node::Element(elem) => elem.clone(),
+            Node::Element(elem) => elem.clone(),
             _ => return false,
         }
     };
     if !matches_compound(&current_elem, &complex.key) {
         return false;
     }
+    if !matches_pseudo(candidate, &complex.key.pseudo) {
+        return false;
+    }
+
+    // Process ancestor selectors in right-to-left order.
     let mut current_node = Rc::clone(candidate);
     for (combinator, compound) in &complex.ancestors {
         let found = match combinator {
             Combinator::Child => {
                 if let Some(parent_weak) = get_parent(&current_node) {
                     if let Some(parent_rc) = parent_weak.upgrade() {
-                        if let crate::dom::dom_tree::Node::Element(ref parent_elem) =
-                            *parent_rc.borrow()
-                        {
-                            if matches_compound(parent_elem, compound) {
+                        if let Node::Element(ref parent_elem) = *parent_rc.borrow() {
+                            if matches_compound(parent_elem, compound)
+                                && matches_pseudo(&parent_rc, &compound.pseudo)
+                            {
                                 current_node = Rc::clone(&parent_rc);
                                 true
                             } else {
@@ -514,10 +662,10 @@ pub fn matches_complex_selector(candidate: &Rc<RefCell<Node>>, complex: &Complex
                 let mut matched = false;
                 while let Some(weak) = ancestor {
                     if let Some(ancestor_rc) = weak.upgrade() {
-                        if let crate::dom::dom_tree::Node::Element(ref ancestor_elem) =
-                            *ancestor_rc.borrow()
-                        {
-                            if matches_compound(ancestor_elem, compound) {
+                        if let Node::Element(ref ancestor_elem) = *ancestor_rc.borrow() {
+                            if matches_compound(ancestor_elem, compound)
+                                && matches_pseudo(&ancestor_rc, &compound.pseudo)
+                            {
                                 current_node = Rc::clone(&ancestor_rc);
                                 matched = true;
                                 break;
@@ -532,10 +680,10 @@ pub fn matches_complex_selector(candidate: &Rc<RefCell<Node>>, complex: &Complex
             }
             Combinator::AdjacentSibling => {
                 if let Some(sibling_rc) = get_prev_sibling(&current_node) {
-                    if let crate::dom::dom_tree::Node::Element(ref sibling_elem) =
-                        *sibling_rc.borrow()
-                    {
-                        if matches_compound(sibling_elem, compound) {
+                    if let Node::Element(ref sibling_elem) = *sibling_rc.borrow() {
+                        if matches_compound(sibling_elem, compound)
+                            && matches_pseudo(&sibling_rc, &compound.pseudo)
+                        {
                             current_node = Rc::clone(&sibling_rc);
                             true
                         } else {
@@ -551,8 +699,9 @@ pub fn matches_complex_selector(candidate: &Rc<RefCell<Node>>, complex: &Complex
             Combinator::GeneralSibling => {
                 let siblings = get_all_prev_siblings(&current_node);
                 if let Some(sibling_rc) = siblings.into_iter().find(|s| {
-                    if let crate::dom::dom_tree::Node::Element(ref sibling_elem) = *s.borrow() {
+                    if let Node::Element(ref sibling_elem) = *s.borrow() {
                         matches_compound(sibling_elem, compound)
+                            && matches_pseudo(s, &compound.pseudo)
                     } else {
                         false
                     }
@@ -625,6 +774,7 @@ mod tests {
             id,
             classes,
             attributes: vec![],
+            pseudo: vec![],
         }
     }
 
