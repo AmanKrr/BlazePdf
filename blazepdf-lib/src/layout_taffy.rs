@@ -74,7 +74,13 @@ fn convert_dom_to_taffy(
                 .map_err(|e| format!("{:?}", e))
         }
         Node::Element(elem) => {
-            let style = extract_style_from_attributes(&elem.attributes, available_width);
+            // let style = extract_style_from_attributes(&elem.attributes, available_width);
+            // Use computed style if injected; otherwise, fall back to extracting inline style.
+            let style = if let Some(ref comp_style) = elem.layout {
+                comp_style.taffy_style.clone()
+            } else {
+                extract_style_from_attributes(&elem.attributes, available_width)
+            };
             let mut children_ids = Vec::new();
             for child in &elem.children {
                 let child_id = convert_dom_to_taffy(tree, child, available_width, font)?;
@@ -226,5 +232,89 @@ fn measure_text_real(text: &str, font: &Font, font_size: f32) -> Size<f32> {
     Size {
         width: total_width,
         height: max_height,
+    }
+}
+
+pub mod debug_taffy {
+    use super::*;
+
+    /// Prints the Taffy tree layout, starting at the root.
+    /// `available_width` is in points.
+    pub fn print_taffy(available_width: f32, font: &Font, dom_tree: &Document) {
+        // Build the Taffy tree from the DOM.
+        let (taffy_tree, root_id, root_layout) = build_taffy_tree(dom_tree, available_width, font);
+
+        // Print the root layout with fixed–point precision.
+        println!("Root Layout:");
+        println!(
+            "  x: {:.2}, y: {:.2}, width: {:.2}, height: {:.2}",
+            root_layout.location.x,
+            root_layout.location.y,
+            root_layout.size.width,
+            root_layout.size.height
+        );
+        println!("\nTaffy Tree Layout:");
+        print_taffy_layout(&taffy_tree, root_id, 0);
+    }
+
+    /// Recursively traverses the Taffy tree and prints layout information for each node.
+    /// Errors during layout or child lookup are printed as warnings.
+    fn print_taffy_layout(
+        tree: &taffy::tree::TaffyTree<String>,
+        node_id: taffy::tree::NodeId,
+        indent: usize,
+    ) {
+        let indent_str = "  ".repeat(indent);
+        // Retrieve the layout for this node.
+        match tree.layout(node_id) {
+            Ok(layout) => {
+                // Check the node context.
+                // For text nodes, our conversion sets the context to the text content.
+                let node_type = if let Some(text) = tree.get_node_context(node_id) {
+                    // If context is non-empty, we assume it's a text node.
+                    if !text.trim().is_empty() {
+                        "Text"
+                    } else {
+                        "Element"
+                    }
+                } else {
+                    "Element"
+                };
+                println!(
+                    "{}Node Type: {}, Layout: x: {:.2}, y: {:.2}, width: {:.2}, height: {:.2}",
+                    indent_str,
+                    node_type,
+                    layout.location.x,
+                    layout.location.y,
+                    layout.size.width,
+                    layout.size.height,
+                );
+                if let Some(context) = tree.get_node_context(node_id) {
+                    if node_type == "Text" {
+                        println!("{}Text content: {:?}", indent_str, context);
+                    }
+                }
+                // Recursively process children.
+                match tree.children(node_id) {
+                    Ok(children) => {
+                        for child in children {
+                            print_taffy_layout(tree, child, indent + 1);
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "{}Error retrieving children for node {:?}: {:?}",
+                            indent_str, node_id, err
+                        );
+                    }
+                }
+            }
+            Err(err) => {
+                eprintln!(
+                    "{}Error retrieving layout for node {:?}: {:?}",
+                    indent_str, node_id, err
+                );
+            }
+        }
     }
 }

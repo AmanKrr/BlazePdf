@@ -13,6 +13,9 @@ use lightningcss::error::ParserError;
 use lightningcss::printer::PrinterOptions;
 use lightningcss::rules::style::StyleRule;
 use lightningcss::traits::ToCss;
+use taffy::prelude::*;
+
+use super::css_matcher::ComputedStyle;
 
 /// A newtype wrapper for Rc<RefCell<Node>> that implements Hash and Eq based on pointer identity.
 #[derive(Clone)]
@@ -29,20 +32,6 @@ impl Eq for NodeWrapper {}
 impl Hash for NodeWrapper {
     fn hash<H: Hasher>(&self, state: &mut H) {
         (Rc::as_ptr(&self.0) as usize).hash(state)
-    }
-}
-
-/// Represents computed CSS properties for an element.
-#[derive(Default, Clone, Debug)]
-pub struct ComputedStyle {
-    pub properties: HashMap<String, String>,
-}
-
-impl ComputedStyle {
-    pub fn new() -> Self {
-        ComputedStyle {
-            properties: HashMap::new(),
-        }
     }
 }
 
@@ -211,7 +200,7 @@ pub fn apply_css_with_indices(
     let mut computed_styles: HashMap<*const RefCell<Node>, ComputedStyle> = HashMap::new();
     for (node_ptr, rules) in matched_map {
         let merged = compute_computed_style(rules, None);
-        computed_styles.insert(node_ptr, ComputedStyle { properties: merged });
+        computed_styles.insert(node_ptr, merged);
     }
 
     // Inject the computed styles into the DOM.
@@ -274,18 +263,31 @@ fn inject_computed_styles(
         Node::Element(elem) => {
             let ptr = Rc::as_ptr(node);
             if let Some(style) = styles.get(&ptr) {
-                let mut style_vec = Vec::new();
-                for (k, v) in &style.properties {
-                    style_vec.push(format!("{}: {}", k, v));
-                }
-                if !style_vec.is_empty() {
-                    if let Some(existing) = elem.attributes.get("style") {
-                        style_vec.insert(0, existing.replace(";", "").clone());
-                    }
-                    let mut inline_style = style_vec.join("; ");
-                    inline_style.push(';');
-                    elem.attributes.insert("style".to_string(), inline_style);
-                }
+                elem.layout = Some(style.clone());
+
+                // let mut style_vec = Vec::new();
+                // for (k, v) in &style.properties {
+                //     style_vec.push(format!("{}: {}", k, v));
+                // }
+                // if !style_vec.is_empty() {
+                //     if let Some(existing) = elem.attributes.get("style") {
+                //         style_vec.insert(0, existing.replace(";", "").clone());
+                //     }
+                //     let mut inline_style = style_vec.join("; ");
+                //     inline_style.push(';');
+                //     elem.attributes.insert("style".to_string(), inline_style);
+                // }
+
+                // Convert the Taffy style to a CSS string.
+                // (You’d need a function that converts a taffy::Style into a string.
+                // Here we assume one exists: taffy_style_to_css_string.)
+                // let css_from_taffy = taffy_style_to_css_string(&comp_style.taffy_style);
+                // let mut inline_style = css_from_taffy;
+                // // Append other properties.
+                // for (prop, value) in &comp_style.other_properties {
+                //     inline_style.push_str(&format!("{}: {}; ", prop, value));
+                // }
+                // elem.attributes.insert("style".to_string(), inline_style);
             }
             for child in &elem.children {
                 inject_computed_styles(child, styles);
@@ -293,4 +295,94 @@ fn inject_computed_styles(
         }
         Node::Text(_) => {}
     }
+}
+
+fn taffy_style_to_css_string(style: &Style) -> String {
+    let mut css = String::new();
+
+    // Display property.
+    css.push_str(&format!(
+        "display: {};",
+        match style.display {
+            Display::Block => "block",
+            Display::Flex => "flex",
+            Display::Grid => "grid",
+            // Display::Inline => "inline",
+            // Display::InlineBlock => "inline-block",
+            Display::None => "none",
+            // Extend for other variants as needed.
+            _ => "initial",
+        }
+    ));
+
+    // Width
+    css.push_str(" width: ");
+    let width_str = match style.size.width {
+        Dimension::Length(val) => format!("{}px", val),
+        Dimension::Auto => "auto".to_string(),
+        // If you have percentages or other variants, handle them here.
+        _ => "initial".to_string(),
+    };
+    css.push_str(&width_str);
+    css.push(';');
+
+    // Height
+    css.push_str(" height: ");
+    let height_str = match style.size.height {
+        Dimension::Length(val) => format!("{}px", val),
+        Dimension::Auto => "auto".to_string(),
+        _ => "initial".to_string(),
+    };
+    css.push_str(&height_str);
+    css.push(';');
+
+    // Margin (if available; assuming margin is represented as a Rect<Dimension>)
+    css.push_str(" margin: ");
+    css.push_str(&format!(
+        "{} {} {} {};",
+        match style.margin.left {
+            LengthPercentageAuto::Length(val) => format!("{}px", val),
+            _ => "0".to_string(),
+        },
+        match style.margin.top {
+            LengthPercentageAuto::Length(val) => format!("{}px", val),
+            _ => "0".to_string(),
+        },
+        match style.margin.right {
+            LengthPercentageAuto::Length(val) => format!("{}px", val),
+            _ => "0".to_string(),
+        },
+        match style.margin.bottom {
+            LengthPercentageAuto::Length(val) => format!("{}px", val),
+            _ => "0".to_string(),
+        }
+    ));
+
+    // Padding (similarly)
+    css.push_str(" padding: ");
+    css.push_str(&format!(
+        "{} {} {} {};",
+        match style.padding.left {
+            LengthPercentage::Length(val) => format!("{}px", val),
+            _ => "0".to_string(),
+        },
+        match style.padding.top {
+            LengthPercentage::Length(val) => format!("{}px", val),
+            _ => "0".to_string(),
+        },
+        match style.padding.right {
+            LengthPercentage::Length(val) => format!("{}px", val),
+            _ => "0".to_string(),
+        },
+        match style.padding.bottom {
+            LengthPercentage::Length(val) => format!("{}px", val),
+            _ => "0".to_string(),
+        }
+    ));
+
+    // Font size (if you have it in your style, adjust accordingly)
+    // For example, if your font-size is stored somewhere in other_properties:
+    // if let Some(font_size) = style.other_properties.get("font-size") { ... }
+
+    css
 }

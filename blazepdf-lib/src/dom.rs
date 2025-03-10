@@ -6,6 +6,8 @@ use std::rc::Weak;
 
 pub mod dom_tree {
 
+    use crate::style::css_matcher::ComputedStyle;
+
     use super::*;
 
     #[derive(Debug, Clone)]
@@ -34,6 +36,9 @@ pub mod dom_tree {
         pub parent: Option<Weak<RefCell<Node>>>,
         pub prev_sibling: Option<Weak<RefCell<Node>>>,
         pub next_sibling: Option<Rc<RefCell<Node>>>,
+
+        // Layout information
+        pub layout: Option<ComputedStyle>,
     }
 
     #[derive(Debug)]
@@ -69,6 +74,7 @@ pub mod dom_tree {
                 parent: None,
                 prev_sibling: None,
                 next_sibling: None,
+                layout: None,
             }
         }
     }

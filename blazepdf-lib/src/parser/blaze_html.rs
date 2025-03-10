@@ -191,6 +191,7 @@ impl TreeSink for BlazePdfTreeSink {
             parent: None,
             prev_sibling: None,
             next_sibling: None,
+            layout: None,
         };
         Rc::new(RefCell::new(dom_tree::Node::Element(element_node)))
     }
